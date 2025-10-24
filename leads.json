@@ -12,5 +12,45 @@
     "message": "General inquiry",
     "timestamp": "2025-10-19T22:33:51.156070",
     "status": "new"
+  },
+  {
+    "name": "Interested Client",
+    "email": "creator@studio.com",
+    "message": "General inquiry about creative services",
+    "timestamp": "2025-10-24T14:26:25.438169",
+    "status": "new",
+    "user_id": "user_001"
+  },
+  {
+    "name": "Interested Client",
+    "email": "creator@studio.com",
+    "message": "General inquiry about creative services",
+    "timestamp": "2025-10-24T14:35:39.976302",
+    "status": "new",
+    "user_id": "user_001"
+  },
+  {
+    "name": "Interested Client",
+    "email": "creator@studio.com",
+    "message": "General inquiry about creative services",
+    "timestamp": "2025-10-24T14:43:04.960760",
+    "status": "new",
+    "user_id": "user_001"
+  },
+  {
+    "name": "yes",
+    "email": "nour@studio.com",
+    "message": "AI virtual professor in a university VR setting. User agreed to a call.",
+    "timestamp": "2025-10-24T14:53:08.069789",
+    "status": "new",
+    "user_id": "user_001"
+  },
+  {
+    "name": "yes please",
+    "email": "nour@studio.com",
+    "message": "Interest in VR for teaching AI concepts to undergraduates.",
+    "timestamp": "2025-10-24T14:55:23.254615",
+    "status": "new",
+    "user_id": "user_001"
   }
 ]

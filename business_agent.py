@@ -46,16 +46,16 @@ class EnhancedBusinessAgent:
                     },
                     {
                         "name": "record_feedback",
-                        "description": "Record unanswered questions or feedback for follow-up by the team. Use when you cannot answer a question properly or user provides feedback.",
+                        "description": "Record feedback for follow-up by the team. Use when user wants to provide feedback about the website or services.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "question": {
+                                "feedback": {
                                     "type": "STRING",
-                                    "description": "The unanswered question or feedback"
+                                    "description": "The feedback"
                                 }
                             },
-                            "required": ["question"]
+                            "required": ["feedback"]
                         }
                     }
                 ]
@@ -255,85 +255,75 @@ class EnhancedBusinessAgent:
                     message=message if len(message) > 10 and not extracted_email else None
                 )
             
-            # Prepare conversation history
-            conversation = []
+            # Prepare conversation
+            conversation = [
+                {"role": "user", "parts": [{"text": self.get_system_instruction()}]},
+                {"role": "model", "parts": [{"text": "Understood. I'm ready to inspire and assist as the Nexus Creative Labs assistant."}]}
+            ]
             
-            # Add system instruction
-            conversation.append({
-                "role": "user",
-                "parts": [{"text": self.get_system_instruction()}]
-            })
-            conversation.append({
-                "role": "model", 
-                "parts": [{"text": "Understood. I'm ready to inspire and assist as the Nexus Creative Labs assistant."}]
-            })
+            # Add recent history (last 6 turns)
+            for msg in history[-6:]:
+                if msg["role"] == "user":
+                    conversation.append({"role": "user", "parts": [{"text": msg["content"]}]})
+                elif msg["role"] == "assistant":
+                    conversation.append({"role": "model", "parts": [{"text": msg["content"]}]})
             
-            # Add recent chat history (last 6 exchanges for better context)
-            for user_msg, bot_msg in history[-6:]:
-                conversation.extend([
-                    {"role": "user", "parts": [{"text": user_msg}]},
-                    {"role": "model", "parts": [{"text": bot_msg}]}
-                ])
+            # Add current user message
+            conversation.append({"role": "user", "parts": [{"text": message}]})
             
-            # Add current message
-            conversation.append({
-                "role": "user", 
-                "parts": [{"text": message}]
-            })
-            
-            # Check if we have enough information to suggest lead capture
+            # Add hint if lead info is complete
             pending_lead = self._get_pending_lead(user_id)
             if self._is_lead_complete(user_id) and not any(tool in message.lower() for tool in ['record', 'capture', 'lead']):
-                # Add hint to the model that we have lead information
                 conversation.append({
                     "role": "user",
-                    "parts": [{"text": f"CONTEXT: We have collected lead information - Name: {pending_lead['name'] or 'Not provided'}, Email: {pending_lead['email']}, Interest: {pending_lead['message'] or 'Not specified'}. Consider using record_customer_interest if appropriate."}]
+                    "parts": [{
+                        "text": f"CONTEXT: We have collected lead information - "
+                                f"Name: {pending_lead['name'] or 'Not provided'}, "
+                                f"Email: {pending_lead['email']}, "
+                                f"Interest: {pending_lead['message'] or 'Not specified'}. "
+                                f"Consider using record_customer_interest if appropriate."
+                    }]
                 })
-            
-            # Generate response with function calling
+
+            # Generate response from Gemini
             response = self.model.generate_content(conversation)
-            
-            # Check if function calling was triggered
-            if response.candidates and response.candidates[0].content.parts:
-                first_part = response.candidates[0].content.parts[0]
-                
-                if hasattr(first_part, 'function_call') and first_part.function_call:
-                    function_call = first_part.function_call
-                    function_name = function_call.name
-                    args = dict(function_call.args)
-                    
-                    print(f"🔧 FUNCTION CALL: {function_name} with args: {args}")
-                    
-                    # Execute the appropriate function
-                    if function_name == "record_customer_interest":
-                        result = self.record_customer_interest(
-                            name=args.get('name'),
-                            email=args.get('email'),
-                            message=args.get('message'),
+
+            # ---- FIXED LOGIC START ----
+            if not response.candidates:
+                return "I'm having trouble responding right now."
+
+            candidate = response.candidates[0]
+            parts = getattr(candidate.content, "parts", [])
+
+            for part in parts:
+                # Handle function calls (Gemini tool use)
+                if hasattr(part, "function_call") and part.function_call:
+                    fn = part.function_call
+                    fn_name = fn.name
+                    args = dict(fn.args)
+                    print(f"🔧 FUNCTION CALL: {fn_name} with args: {args}")
+
+                    if fn_name == "record_customer_interest":
+                        return self.record_customer_interest(
+                            name=args.get("name"),
+                            email=args.get("email"),
+                            message=args.get("message"),
                             user_id=user_id
                         )
-                        return result
-                    
-                    elif function_name == "record_feedback":
-                        result = self.record_feedback(
-                            question=args.get('question', message)
+
+                    elif fn_name == "record_feedback":
+                        return self.record_feedback(
+                            question=args.get("feedback", message)
                         )
-                        return result
-            
-            # If no function call but we have email, check if we should capture lead
-            if extracted_email and not any(fc in str(response) for fc in ['record_customer_interest', 'record_feedback']):
-                # If user provided email and seems interested, capture lead
-                if any(word in message.lower() for word in ['contact', 'email', 'reach', 'call', 'talk']):
-                    return self.record_customer_interest(
-                        name=extracted_name,
-                        email=extracted_email,
-                        message=pending_lead.get('message', 'Contact request'),
-                        user_id=user_id
-                    )
-            
-            # Return the text response
-            return response.text
-            
+
+                # Handle normal text responses
+                elif hasattr(part, "text"):
+                    return part.text
+
+            # Fallback if no usable part
+            return "I'm here and listening — could you tell me a bit more about your idea?"
+            # ---- FIXED LOGIC END ----
+
         except Exception as e:
             print(f"Error in process_message: {e}")
             return "I apologize, but I'm experiencing creative block (technical difficulties). Please try again or contact us directly at hello@nexuscreativelabs.com."
@@ -394,24 +384,7 @@ def create_gradio_app():
         )
         
         with gr.Row():
-            with gr.Column(scale=1):
-                gr.Markdown("### 📊 Studio Stats")
-                stats = agent.get_stats()
-                gr.Markdown(f"""
-                - **Active Projects**: {stats['total_leads']}
-                - **Creative Inquiries**: {stats['total_feedback']}
-                - **New Today**: {stats['new_leads_today']}
-                - **In Progress**: {stats['pending_leads']}
-                """)
-                
-                gr.Markdown("""
-                ### 🎯 How We Can Help
-                - Immersive AR/VR Experiences
-                - Interactive Installations  
-                - Creative AI Solutions
-                - Digital Storytelling
-                - Rapid Prototyping
-                """)
+            
             
             with gr.Column(scale=2):
                 # Chat interface with updated examples
@@ -423,7 +396,7 @@ def create_gradio_app():
                     examples=[
                         "I'm interested in creating an AR experience for my brand",
                         "My name is Alex and I have a project idea",
-                        "Here's my email: creator@studio.com - I'd like to discuss VR",
+                        "Here's my email: nour@studio.com - I'd like to discuss VR  ",
                         "What's your process for interactive installations?",
                         "Can you help with AI-generated art for an exhibition?",
                         "I need prototyping for a creative tech product"
